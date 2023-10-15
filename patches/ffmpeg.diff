@@ -11899,6 +11899,21 @@ index 9b9a610..66186c0 100644
      av_channel_layout_uninit(&avc->ch_layout);
      if (channels > 8) {
          avc->ch_layout.order       = AV_CHANNEL_ORDER_UNSPEC;
+diff --git a/libavformat/Makefile b/libavformat/Makefile
+index 47bbbbf..d44d398 100644
+--- a/libavformat/Makefile
++++ b/libavformat/Makefile
+@@ -691,6 +691,10 @@ OBJS-$(CONFIG_UDP_PROTOCOL)              += udp.o ip.o
+ OBJS-$(CONFIG_UDPLITE_PROTOCOL)          += udp.o ip.o
+ OBJS-$(CONFIG_UNIX_PROTOCOL)             += unix.o
+ 
++# libav.js
++OBJS-$(CONFIG_JSFETCH_PROTOCOL)          += jsfetch.o
++# /libav.js
++
+ # external library protocols
+ OBJS-$(CONFIG_LIBAMQP_PROTOCOL)          += libamqp.o urldecode.o
+ OBJS-$(CONFIG_LIBRIST_PROTOCOL)          += librist.o
 diff --git a/libavformat/file.c b/libavformat/file.c
 index cbdf48d..aeb3767 100644
 --- a/libavformat/file.c
@@ -12011,3 +12026,18 @@ index 3b19e0b..474d82d 100644
  
      /* CRC is correct so we can be 99% sure there's an actual change here */
      if (idx < 0) {
+diff --git a/libavformat/protocols.c b/libavformat/protocols.c
+index 9491dc7..c3d7bc3 100644
+--- a/libavformat/protocols.c
++++ b/libavformat/protocols.c
+@@ -76,6 +76,10 @@ extern const URLProtocol ff_libzmq_protocol;
+ extern const URLProtocol ff_ipfs_gateway_protocol;
+ extern const URLProtocol ff_ipns_gateway_protocol;
+ 
++/* libav.js */
++extern const URLProtocol ff_jsfetch_protocol;
++/* /libav.js */
++
+ #include "libavformat/protocol_list.c"
+ 
+ const AVClass *ff_urlcontext_child_class_iterate(void **iter)
