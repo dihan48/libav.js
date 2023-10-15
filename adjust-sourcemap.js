@@ -62,6 +62,10 @@ async function main() {
             // AOM-specific hack
             res = `../build/libaom-${version("libaom")}/` + orig.slice(3);
 
+        } else if (/^\.\.\/\.\.\//.test(orig)) {
+            // AOM-specific hack
+            res = `../build/x264-snapshot-${version("libx264")}/` + orig.slice(6);
+
         } else if (
             /cache\/sysroot/.test(orig) ||
             /system\/lib/.test(orig)

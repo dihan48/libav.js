@@ -83,6 +83,9 @@
         ["av_dict_copy_js", "number", ["number", "number", "number"]],
         ["av_dict_free", null, ["number"]],
         ["av_dict_set_js", "number", ["number", "string", "string", "number"]],
+        ["av_get_default_channel_layout", "number", ["number"]],
+        ["av_stream_get_side_data", "number", ["number", "number", "number"]],
+        ["av_stream_add_side_data", "number", ["number", "number", "number", "number"]],
 
         ["sws_getContext", "number",
             ["number", "number", "number", "number", "number", "number",

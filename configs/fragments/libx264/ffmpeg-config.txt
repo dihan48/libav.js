@@ -1,0 +1,3 @@
+--enable-gpl
+--enable-libx264
+--enable-encoder=libx264

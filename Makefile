@@ -96,7 +96,8 @@ dist/libav-$(LIBAVJS_VERSION)-%.asm.js: build/ffmpeg-$(FFMPEG_VERSION)/build-bas
 		./adjust-sourcemap.js dist/libav-$(LIBAVJS_VERSION)-$(*).asm.wasm.map \
 			ffmpeg $(FFMPEG_VERSION) \
 			libvpx $(LIBVPX_VERSION) \
-			libaom $(LIBAOM_VERSION); \
+			libaom $(LIBAOM_VERSION) \
+			libx264 $(X264_VERSION); \
 	fi || ( rm -f $(@) ; false )
 
 
@@ -131,7 +132,8 @@ dist/libav-$(LIBAVJS_VERSION)-%.dbg.asm.js: build/ffmpeg-$(FFMPEG_VERSION)/build
 		./adjust-sourcemap.js dist/libav-$(LIBAVJS_VERSION)-$(*).dbg.asm.wasm.map \
 			ffmpeg $(FFMPEG_VERSION) \
 			libvpx $(LIBVPX_VERSION) \
-			libaom $(LIBAOM_VERSION); \
+			libaom $(LIBAOM_VERSION) \
+			libx264 $(X264_VERSION); \
 	fi || ( rm -f $(@) ; false )
 
 # wasm version with no added features
@@ -167,7 +169,8 @@ dist/libav-$(LIBAVJS_VERSION)-%.wasm.js: build/ffmpeg-$(FFMPEG_VERSION)/build-ba
 		./adjust-sourcemap.js dist/libav-$(LIBAVJS_VERSION)-$(*).wasm.wasm.map \
 			ffmpeg $(FFMPEG_VERSION) \
 			libvpx $(LIBVPX_VERSION) \
-			libaom $(LIBAOM_VERSION); \
+			libaom $(LIBAOM_VERSION) \
+			libx264 $(X264_VERSION); \
 	fi || ( rm -f $(@) ; false )
 
 
@@ -202,7 +205,8 @@ dist/libav-$(LIBAVJS_VERSION)-%.dbg.wasm.js: build/ffmpeg-$(FFMPEG_VERSION)/buil
 		./adjust-sourcemap.js dist/libav-$(LIBAVJS_VERSION)-$(*).dbg.wasm.wasm.map \
 			ffmpeg $(FFMPEG_VERSION) \
 			libvpx $(LIBVPX_VERSION) \
-			libaom $(LIBAOM_VERSION); \
+			libaom $(LIBAOM_VERSION) \
+			libx264 $(X264_VERSION); \
 	fi || ( rm -f $(@) ; false )
 
 # wasm + threads
@@ -238,7 +242,8 @@ dist/libav-$(LIBAVJS_VERSION)-%.thr.js: build/ffmpeg-$(FFMPEG_VERSION)/build-thr
 		./adjust-sourcemap.js dist/libav-$(LIBAVJS_VERSION)-$(*).thr.wasm.map \
 			ffmpeg $(FFMPEG_VERSION) \
 			libvpx $(LIBVPX_VERSION) \
-			libaom $(LIBAOM_VERSION); \
+			libaom $(LIBAOM_VERSION) \
+			libx264 $(X264_VERSION); \
 	fi || ( rm -f $(@) ; false )
 
 
@@ -273,7 +278,8 @@ dist/libav-$(LIBAVJS_VERSION)-%.dbg.thr.js: build/ffmpeg-$(FFMPEG_VERSION)/build
 		./adjust-sourcemap.js dist/libav-$(LIBAVJS_VERSION)-$(*).dbg.thr.wasm.map \
 			ffmpeg $(FFMPEG_VERSION) \
 			libvpx $(LIBVPX_VERSION) \
-			libaom $(LIBAOM_VERSION); \
+			libaom $(LIBAOM_VERSION) \
+			libx264 $(X264_VERSION); \
 	fi || ( rm -f $(@) ; false )
 
 # wasm + simd
@@ -309,7 +315,8 @@ dist/libav-$(LIBAVJS_VERSION)-%.simd.js: build/ffmpeg-$(FFMPEG_VERSION)/build-si
 		./adjust-sourcemap.js dist/libav-$(LIBAVJS_VERSION)-$(*).simd.wasm.map \
 			ffmpeg $(FFMPEG_VERSION) \
 			libvpx $(LIBVPX_VERSION) \
-			libaom $(LIBAOM_VERSION); \
+			libaom $(LIBAOM_VERSION) \
+			libx264 $(X264_VERSION); \
 	fi || ( rm -f $(@) ; false )
 
 
@@ -344,7 +351,8 @@ dist/libav-$(LIBAVJS_VERSION)-%.dbg.simd.js: build/ffmpeg-$(FFMPEG_VERSION)/buil
 		./adjust-sourcemap.js dist/libav-$(LIBAVJS_VERSION)-$(*).dbg.simd.wasm.map \
 			ffmpeg $(FFMPEG_VERSION) \
 			libvpx $(LIBVPX_VERSION) \
-			libaom $(LIBAOM_VERSION); \
+			libaom $(LIBAOM_VERSION) \
+			libx264 $(X264_VERSION); \
 	fi || ( rm -f $(@) ; false )
 
 # wasm + threads + simd
@@ -380,7 +388,8 @@ dist/libav-$(LIBAVJS_VERSION)-%.thrsimd.js: build/ffmpeg-$(FFMPEG_VERSION)/build
 		./adjust-sourcemap.js dist/libav-$(LIBAVJS_VERSION)-$(*).thrsimd.wasm.map \
 			ffmpeg $(FFMPEG_VERSION) \
 			libvpx $(LIBVPX_VERSION) \
-			libaom $(LIBAOM_VERSION); \
+			libaom $(LIBAOM_VERSION) \
+			libx264 $(X264_VERSION); \
 	fi || ( rm -f $(@) ; false )
 
 
@@ -415,7 +424,8 @@ dist/libav-$(LIBAVJS_VERSION)-%.dbg.thrsimd.js: build/ffmpeg-$(FFMPEG_VERSION)/b
 		./adjust-sourcemap.js dist/libav-$(LIBAVJS_VERSION)-$(*).dbg.thrsimd.wasm.map \
 			ffmpeg $(FFMPEG_VERSION) \
 			libvpx $(LIBVPX_VERSION) \
-			libaom $(LIBAOM_VERSION); \
+			libaom $(LIBAOM_VERSION) \
+			libx264 $(X264_VERSION); \
 	fi || ( rm -f $(@) ; false )
 
 
@@ -491,6 +501,7 @@ clean: halfclean
 	-rm -rf build/openh264-$(OPENH264_VERSION)
 	-rm -rf build/ffmpeg-$(FFMPEG_VERSION)
 	-rm -rf build/x265_$(X265_VERSION)
+	-rm -rf build/x264-snapshot-$(X264_VERSION)
 
 distclean: clean
 	-rm -rf build/
