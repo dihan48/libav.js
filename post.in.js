@@ -783,7 +783,7 @@ var ff_free_decoder = Module.ff_free_decoder = function(c, pkt, frame) {
  */
 /* @types
  * ff_encode_multi@sync(
- *     ctx: number, frame: number, pkt: number, inFrames: Frame[],
+ *     ctx: number, frame: number, pkt: number, inFrames: (Frame | number)[],
  *     fin?: boolean
  * ): @promise@Packet[]@
  */
@@ -832,20 +832,26 @@ var ff_encode_multi = Module.ff_encode_multi = function(ctx, frame, pkt, inFrame
  */
 /* @types
  * ff_decode_multi@sync(
- *     ctx: number, pkt: number, frame: number, inPackets: Packet[],
+ *     ctx: number, pkt: number, frame: number, inPackets: (Packet | number)[],
  *     config?: boolean | {
  *         fin?: boolean,
- *         ignoreErrors?: boolean
+ *         ignoreErrors?: boolean,
+ *         copyoutFrame?: string
  *     }
  * ): @promise@Frame[]@
  */
 var ff_decode_multi = Module.ff_decode_multi = function(ctx, pkt, frame, inPackets, config) {
     var outFrames = [];
+    var transfer = [];
     if (typeof config === "boolean") {
         config = {fin: config};
     } else {
         config = config || {};
     }
+
+    var copyoutFrame = ff_copyout_frame;
+    if (config.copyoutFrame)
+        copyoutFrame = ff_copyout_frame_versions[config.copyoutFrame];
 
     function handlePacket(inPacket) {
         var ret;
@@ -879,7 +885,9 @@ var ff_decode_multi = Module.ff_decode_multi = function(ctx, pkt, frame, inPacke
             else if (ret < 0)
                 throw new Error("Error decoding audio frame: " + ff_error(ret));
 
-            var outFrame = ff_copyout_frame(frame);
+            var outFrame = copyoutFrame(frame);
+            if (outFrame && outFrame.libavjsTransfer && outFrame.libavjsTransfer.length)
+                transfer.push.apply(transfer, outFrame.libavjsTransfer);
             outFrames.push(outFrame);
             av_frame_unref(frame);
         }
@@ -890,6 +898,7 @@ var ff_decode_multi = Module.ff_decode_multi = function(ctx, pkt, frame, inPacke
     if (config.fin)
         handlePacket(null);
 
+    outFrames.libavjsTransfer = transfer;
     return outFrames;
 };
 
@@ -1055,7 +1064,7 @@ Module.ff_init_demuxer_file = function() {
  */
 /* @types
  * ff_write_multi@sync(
- *     oc: number, pkt: number, inPackets: Packet[], interleave?: boolean
+ *     oc: number, pkt: number, inPackets: (Packet | number)[], interleave?: boolean
  * ): @promise@void@
  */
 var ff_write_multi = Module.ff_write_multi = function(oc, pkt, inPackets, interleave) {
@@ -1090,7 +1099,8 @@ var ff_write_multi = Module.ff_write_multi = function(oc, pkt, inPackets, interl
  *     fmt_ctx: number, pkt: number, devfile?: string, opts?: {
  *         limit?: number, // OUTPUT limit, in bytes
  *         devLimit?: number, // INPUT limit, in bytes (don't read if less than this much data is available)
- *         unify?: boolean // If true, unify the packets into a single stream (called 0), so that the output is in the same order as the input
+ *         unify?: boolean, // If true, unify the packets into a single stream (called 0), so that the output is in the same order as the input
+ *         copyoutPacket?: string // Version of ff_copyout_packet to use
  *     }
  * ): @promsync@[number, Record<number, Packet[]>]@
  */
@@ -1107,6 +1117,9 @@ function ff_read_multi(fmt_ctx, pkt, devfile, opts) {
     if (opts.devLimit)
         devLimit = opts.devLimit;
     var unify = !!opts.unify;
+    var copyoutPacket = ff_copyout_packet;
+    if (opts.copyoutPacket)
+        copyoutPacket = ff_copyout_packet_versions[opts.copyoutPacket];
 
     function step() {
         // If we risk running past the end of the currently-read data, stop now
@@ -1122,13 +1135,13 @@ function ff_read_multi(fmt_ctx, pkt, devfile, opts) {
                 return [ret, outPackets];
 
             // And copy it out
-            var packet = ff_copyout_packet(pkt);
-            var idx = unify ? 0 : packet.stream_index;
+            var packet = copyoutPacket(pkt);
+            var idx = unify ? 0 : AVPacket_stream_index(pkt);
             if (!(idx in outPackets))
                 outPackets[idx] = [];
             outPackets[idx].push(packet);
+            sz += AVPacket_size(pkt);
             av_packet_unref(pkt);
-            sz += packet.data.length;
             if (opts.limit && sz >= opts.limit)
                 return [-6 /* EAGAIN */, outPackets];
 
@@ -1333,26 +1346,39 @@ var ff_init_filter_graph = Module.ff_init_filter_graph = function(filters_descr,
  * @param framePtr  AVFrame
  * @param inFrames  Input frames, either as an array of frames or with frames
  *                  per input
- * @param fin  Indicate end-of-stream(s)
+ * @param config  Options. May be "true" to indicate end of stream.
  */
 /* @types
  * ff_filter_multi@sync(
  *     srcs: number, buffersink_ctx: number, framePtr: number,
- *     inFrames: Frame[], fin?: boolean
+ *     inFrames: (Frame | number)[], config?: boolean | {
+ *         fin?: boolean,
+ *         copyoutFrame?: string
+ *     }
  * ): @promise@Frame[]@;
  * ff_filter_multi@sync(
  *     srcs: number[], buffersink_ctx: number, framePtr: number,
- *     inFrames: Frame[][], fin?: boolean[]
+ *     inFrames: (Frame | number)[][], config?: boolean[] | {
+ *         fin?: boolean,
+ *         copyoutFrame?: string
+ *     }[]
  * ): @promise@Frame[]@
  */
-var ff_filter_multi = Module.ff_filter_multi = function(srcs, buffersink_ctx, framePtr, inFrames, fin) {
+var ff_filter_multi = Module.ff_filter_multi = function(srcs, buffersink_ctx, framePtr, inFrames, config) {
     var outFrames = [];
+    var transfer = [];
 
     if (!srcs.length) {
         srcs = [srcs];
         inFrames = [inFrames];
-        fin = [fin];
+        config = [config];
     }
+
+    config = config.map(function(config) {
+        if (config === true)
+            return {fin: true};
+        return config || {};
+    });
 
     // Find the longest buffer (ideally they're all the same)
     var max = inFrames.map(function(srcFrames) {
@@ -1361,7 +1387,7 @@ var ff_filter_multi = Module.ff_filter_multi = function(srcs, buffersink_ctx, fr
         return Math.max(a, b);
     });
 
-    function handleFrame(buffersrc_ctx, inFrame) {
+    function handleFrame(buffersrc_ctx, inFrame, copyoutFrame) {
         if (inFrame !== null)
             ff_copyin_frame(framePtr, inFrame);
 
@@ -1376,7 +1402,9 @@ var ff_filter_multi = Module.ff_filter_multi = function(srcs, buffersink_ctx, fr
                 break;
             if (ret < 0)
                 throw new Error("Error while receiving a frame from the filtergraph: " + ff_error(ret));
-            var outFrame = ff_copyout_frame(framePtr);
+            var outFrame = copyoutFrame(framePtr);
+            if (outFrame && outFrame.libavjsTransfer && outFrame.libavjsTransfer.length)
+                transfer.push.apply(transfer, outFrame.libavjsTransfer);
             outFrames.push(outFrame);
             av_frame_unref(framePtr);
         }
@@ -1386,13 +1414,65 @@ var ff_filter_multi = Module.ff_filter_multi = function(srcs, buffersink_ctx, fr
     for (var fi = 0; fi <= max; fi++) {
         for (var ti = 0; ti < inFrames.length; ti++) {
             var inFrame = inFrames[ti][fi];
-            if (inFrame) handleFrame(srcs[ti], inFrame);
-            else if (fin[ti]) handleFrame(srcs[ti], null);
+            var copyoutFrame = ff_copyout_frame;
+            if (config[ti].copyoutFrame)
+                copyoutFrame = ff_copyout_frame_versions[config[ti].copyoutFrame];
+            if (inFrame) handleFrame(srcs[ti], inFrame, copyoutFrame);
+            else if (config[ti].fin) handleFrame(srcs[ti], null, copyoutFrame);
         }
     }
 
+    outFrames.libavjsTransfer = transfer;
     return outFrames;
 };
+
+/**
+ * Decode and filter frames. Just a combination of ff_decode_multi and
+ * ff_filter_multi that's all done on the libav.js side.
+ * @param ctx  AVCodecContext
+ * @param buffersrc_ctx  AVFilterContext, input
+ * @param buffersink_ctx  AVFilterContext, output
+ * @param pkt  AVPacket
+ * @param frame  AVFrame
+ * @param inPackets  Incoming packets to decode and filter
+ * @param config  Decoding and filtering options. May be "true" to indicate end
+ *                of stream.
+ */
+/* @types
+ * ff_decode_filter_multi@sync(
+ *     ctx: number, buffersrc_ctx: number, buffersink_ctx: number, pkt: number,
+ *     frame: number, inPackets: (Packet | number)[],
+ *     config?: boolean | {
+ *         fin?: boolean,
+ *         ignoreErrors?: boolean,
+ *         copyoutFrame?: string
+ *     }
+ * ): @promise@Frame[]@
+ */
+var ff_decode_filter_multi = Module.ff_decode_filter_multi = function(
+    ctx, buffersrc_ctx, buffersink_ctx, pkt, frame, inPackets, config
+) {
+    if (typeof config === "boolean") {
+        config = {fin: config};
+    } else {
+        config = config || {};
+    }
+
+    // 1: Decode
+    var decodedFrames = ff_decode_multi(ctx, pkt, frame, inPackets, {
+        fin: !!config.fin,
+        ignoreErrors: !!config.ignoreErrors,
+        copyoutFrame: "ptr"
+    });
+
+    // 2: Filter
+    return ff_filter_multi(
+        buffersrc_ctx, buffersink_ctx, frame, decodedFrames, {
+            fin: !!config.fin,
+            copyoutFrame: config.copyoutFrame || "default"
+        }
+    );
+}
 
 /**
  * Copy out a frame.
@@ -1405,12 +1485,14 @@ var ff_copyout_frame = Module.ff_copyout_frame = function(frame) {
         // Maybe a video frame?
         var width = AVFrame_width(frame);
         if (width)
-            return ff_copyout_frame_video(frame, width);
+            return ff_copyout_frame_video_width(frame, width);
     }
     var channels = AVFrame_channels(frame);
     var format = AVFrame_format(frame);
+    var transfer = [];
     var outFrame = {
         data: null,
+        libavjsTransfer: transfer,
         channel_layout: AVFrame_channel_layout(frame),
         channels: channels,
         format: format,
@@ -1426,22 +1508,28 @@ var ff_copyout_frame = Module.ff_copyout_frame = function(frame) {
         var data = [];
         for (var ci = 0; ci < channels; ci++) {
             var inData = AVFrame_data_a(frame, ci);
+            var outData = null;
             switch (format) {
                 case 5: // U8P
-                    data.push(copyout_u8(inData, nb_samples));
+                    outData = copyout_u8(inData, nb_samples);
                     break;
 
                 case 6: // S16P
-                    data.push(copyout_s16(inData, nb_samples));
+                    outData = copyout_s16(inData, nb_samples);
                     break;
 
                 case 7: // S32P
-                    data.push(copyout_s32(inData, nb_samples));
+                    outData = copyout_s32(inData, nb_samples);
                     break;
 
                 case 8: // FLT
-                    data.push(copyout_f32(inData, nb_samples));
+                    outData = copyout_f32(inData, nb_samples);
                     break;
+            }
+
+            if (outData) {
+                data.push(outData);
+                transfer.push(outData.buffer);
             }
         }
         outFrame.data = data;
@@ -1449,22 +1537,28 @@ var ff_copyout_frame = Module.ff_copyout_frame = function(frame) {
     } else {
         var ct = channels*nb_samples;
         var inData = AVFrame_data_a(frame, 0);
+        var outData = null;
         switch (format) {
             case 0: // U8
-                outFrame.data = copyout_u8(inData, ct);
+                outData = copyout_u8(inData, ct);
                 break;
 
             case 1: // S16
-                outFrame.data = copyout_s16(inData, ct);
+                outData = copyout_s16(inData, ct);
                 break;
 
             case 2: // S32
-                outFrame.data = copyout_s32(inData, ct);
+                outData = copyout_s32(inData, ct);
                 break;
 
             case 3: // FLT
-                outFrame.data = copyout_f32(inData, ct);
+                outData = copyout_f32(inData, ct);
                 break;
+        }
+
+        if (outData) {
+            outFrame.data = outData;
+            transfer.push(outData.buffer);
         }
 
     }
@@ -1472,14 +1566,26 @@ var ff_copyout_frame = Module.ff_copyout_frame = function(frame) {
     return outFrame;
 };
 
+/**
+ * Copy out a video frame. `ff_copyout_frame` will copy out a video frame if a
+ * video frame is found, but this may be faster if you know it's a video frame.
+ * @param frame  AVFrame
+ */
+/// @types ff_copyout_frame_video@sync(frame: number): @promise@Frame@
+var ff_copyout_frame_video = Module.ff_copyout_frame_video = function(frame) {
+    return ff_copyout_frame_video_width(frame, AVFrame_width(frame));
+};
+
 // Copy out a video frame. Used internally by ff_copyout_frame.
-var ff_copyout_frame_video = Module.ff_copyout_frame_video = function(frame, width) {
+var ff_copyout_frame_video_width = Module.ff_copyout_frame_video = function(frame, width) {
     var data = [];
     var height = AVFrame_height(frame);
     var format = AVFrame_format(frame);
     var desc = av_pix_fmt_desc_get(format);
+    var transfer = [];
     var outFrame = {
         data: data,
+        libavjsTransfer: transfer,
         width: width,
         height: height,
         format: AVFrame_format(frame),
@@ -1502,8 +1608,11 @@ var ff_copyout_frame_video = Module.ff_copyout_frame_video = function(frame, wid
         var h = height;
         if (i === 1 || i === 2)
             h >>= AVPixFmtDescriptor_log2_chroma_h(desc);
-        for (var y = 0; y < h; y++)
-            plane.push(copyout_u8(inData + y * linesize, linesize));
+        for (var y = 0; y < h; y++) {
+            var line = copyout_u8(inData + y * linesize, linesize);
+            plane.push(line);
+            transfer.push(line.buffer);
+        }
         data.push(plane);
     }
 
@@ -1511,12 +1620,142 @@ var ff_copyout_frame_video = Module.ff_copyout_frame_video = function(frame, wid
 };
 
 /**
+ * Get the size of a packed video frame in its native format.
+ * @param frame  AVFrame
+ */
+/// @types ff_frame_video_packed_size@sync(frame: number): @promise@Frame@
+var ff_frame_video_packed_size = Module.ff_frame_video_packed_size = function(frame) {
+    var height = AVFrame_height(frame);
+    var format = AVFrame_format(frame);
+    var desc = av_pix_fmt_desc_get(format);
+
+    var dataSz = 0;
+    for (var i = 0; i < 8 /* AV_NUM_DATA_POINTERS */; i++) {
+        var linesize = AVFrame_linesize_a(frame, i);
+        if (!linesize)
+            break;
+        var h = height;
+        if (i === 1 || i === 2)
+            h >>= AVPixFmtDescriptor_log2_chroma_h(desc);
+        dataSz += linesize * h;
+    }
+
+    return dataSz;
+};
+
+/* Copy out just the packed data from this frame, into the given buffer. Used
+ * internally. */
+var ff_copyout_frame_data_packed = Module.ff_copyout_frame_data_packed = function(data, frame) {
+    var height = AVFrame_height(frame);
+    var format = AVFrame_format(frame);
+    var desc = av_pix_fmt_desc_get(format);
+
+    // Copy it out
+    var dIdx = 0;
+    for (var i = 0; i < 8 /* AV_NUM_DATA_POINTERS */; i++) {
+        var linesize = AVFrame_linesize_a(frame, i);
+        if (!linesize)
+            break;
+        var inData = AVFrame_data_a(frame, i);
+        var h = height;
+        if (i === 1 || i === 2)
+            h >>= AVPixFmtDescriptor_log2_chroma_h(desc);
+        for (var y = 0; y < h; y++) {
+            data.set(
+                Module.HEAPU8.subarray(inData + y * linesize, inData + (y + 1) * linesize),
+                dIdx
+            );
+            dIdx += linesize;
+        }
+    }
+};
+
+/**
+ * Copy out a video frame, as a single packed Uint8Array.
+ * @param frame  AVFrame
+ */
+/// @types ff_copyout_frame_video_packed@sync(frame: number): @promise@Frame@
+var ff_copyout_frame_video_packed = Module.ff_copyout_frame_video_packed = function(frame) {
+    var data = new Uint8Array(ff_frame_video_packed_size(frame));
+    ff_copyout_frame_data_packed(data, frame);
+
+    var outFrame = {
+        data: data,
+        libavjsTransfer: [data.buffer],
+        width: AVFrame_width(frame),
+        height: AVFrame_height(frame),
+        format: AVFrame_format(frame),
+        key_frame: AVFrame_key_frame(frame),
+        pict_type: AVFrame_pict_type(frame),
+        pts: AVFrame_pts(frame),
+        ptshi: AVFrame_ptshi(frame),
+        sample_aspect_ratio: [
+            AVFrame_sample_aspect_ratio_num(frame),
+            AVFrame_sample_aspect_ratio_den(frame)
+        ]
+    };
+
+    return outFrame;
+};
+
+/**
+ * Copy out a video frame as an ImageData. The video frame *must* be RGBA for
+ * this to work as expected (though some ImageData will be returned for any
+ * frame).
+ * @param frame  AVFrame
+ */
+/* @types
+ * ff_copyout_frame_video_imagedata@sync(
+ *     frame: number
+ * ): @promise@ImageData@
+ */
+var ff_copyout_frame_video_imagedata = Module.ff_copyout_frame_video_imagedata = function(frame) {
+    var width = AVFrame_width(frame);
+    var height = AVFrame_height(frame);
+    var id = new ImageData(width, height);
+    ff_copyout_frame_data_packed(id.data, frame);
+    id.libavjsTransfer = [id.data.buffer];
+    return id;
+};
+
+/**
+ * Copy "out" a video frame by just allocating another frame in libav.
+ * @param frame  AVFrame
+ */
+var ff_copyout_frame_ptr = Module.ff_copyout_frame_ptr = function(frame) {
+    var ret = av_frame_clone(frame);
+    if (!ret)
+        throw new Error("Failed to allocate new frame");
+    return ret;
+};
+
+// All of the versions of ff_copyout_frame
+var ff_copyout_frame_versions = {
+    default: ff_copyout_frame,
+    video: ff_copyout_frame_video,
+    video_packed: ff_copyout_frame_video_packed,
+    ImageData: ff_copyout_frame_video_imagedata,
+    ptr: ff_copyout_frame_ptr
+};
+
+/**
  * Copy in a frame.
  * @param framePtr  AVFrame
- * @param frame  Frame to copy in
+ * @param frame  Frame to copy in, as either a Frame or an AVFrame pointer
  */
-/// @types ff_copyin_frame@sync(framePtr: number, frame: Frame): @promise@void@
+/// @types ff_copyin_frame@sync(framePtr: number, frame: Frame | number): @promise@void@
 var ff_copyin_frame = Module.ff_copyin_frame = function(framePtr, frame) {
+    if (typeof frame === "number") {
+        // This is a frame pointer, not a libav.js Frame
+        av_frame_unref(framePtr);
+        var ret = av_frame_ref(framePtr, frame);
+        if (ret < 0)
+            throw new Error("Failed to reference frame data: " + ff_error(ret));
+        av_frame_unref(frame);
+        av_frame_free_js(frame);
+        return;
+    }
+
     if (frame.width)
         return ff_copyin_frame_video(framePtr, frame);
 
@@ -1647,8 +1886,10 @@ var ff_copyin_frame_video = Module.ff_copyin_frame_video = function(framePtr, fr
 var ff_copyout_packet = Module.ff_copyout_packet = function(pkt) {
     var data = AVPacket_data(pkt);
     var size = AVPacket_size(pkt);
+    var data = copyout_u8(data, size);
     return {
-        data: copyout_u8(data, size),
+        data: data,
+        libavjsTransfer: [data.buffer],
         pts: AVPacket_pts(pkt),
         ptshi: AVPacket_ptshi(pkt),
         dts: AVPacket_dts(pkt),
@@ -1681,12 +1922,41 @@ var ff_copyout_side_data = Module.ff_copyout_side_data = function(pkt) {
 };
 
 /**
+ * Copy "out" a packet by just copying its data into a new AVPacket.
+ * @param pkt  AVPacket
+ */
+/// @types ff_copyout_packet_ptr@sync(pkt: number): @promise@number@
+var ff_copyout_packet_ptr = Module.ff_copyout_packet_ptr = function(pkt) {
+    var ret = av_packet_clone(pkt);
+    if (!ret)
+        throw new Error("Failed to clone packet");
+    return ret;
+};
+
+// Versions of ff_copyout_packet
+var ff_copyout_packet_versions = {
+    default: ff_copyout_packet,
+    ptr: ff_copyout_packet_ptr
+};
+
+/**
  * Copy in a packet.
  * @param pktPtr  AVPacket
- * @param packet  Packet to copy in.
+ * @param packet  Packet to copy in, as either a Packet or an AVPacket pointer
  */
-/// @types ff_copyin_packet@sync(pktPtr: number, packet: Packet): @promise@void@
+/// @types ff_copyin_packet@sync(pktPtr: number, packet: Packet | number): @promise@void@
 var ff_copyin_packet = Module.ff_copyin_packet = function(pktPtr, packet) {
+    if (typeof packet === "number") {
+        // Input packet is an AVPacket pointer, duplicate it
+        av_packet_unref(pktPtr);
+        var res = av_packet_ref(pktPtr, packet);
+        if (res < 0)
+            throw new Error("Failed to reference packet: " + ff_error(res));
+        av_packet_unref(packet);
+        av_packet_free_js(packet);
+        return;
+    }
+
     ff_set_packet(pktPtr, packet.data);
 
     [
